@@ -1,0 +1,60 @@
+{
+  "port": 6001,
+  "host": "0.0.0.0",
+  "debug": false,
+
+  "app_manager": {
+    "driver": "memory"
+  },
+
+  "adapter": {
+    "driver": "redis"
+  },
+
+  "cache": {
+    "driver": "redis"
+  },
+
+  "queue": {
+    "driver": "redis"
+  },
+
+  "push": {
+    "storage_driver": "memory",
+    "queue_driver": "redis",
+    "allow_memory_drivers": true
+  },
+
+  "webhooks": {
+    "enabled": false
+  },
+
+  "recovery": {
+    "enabled": true,
+    "buffer_size": 2000,
+    "ttl_seconds": 300
+  },
+
+  "history": {
+    "enabled": false
+  },
+
+  "ai_transport": {
+    "enabled": false
+  },
+
+  "rate_limiter": {
+    "enabled": true,
+    "driver": "redis",
+    "limits": {
+      "connection_per_ip": 30,
+      "events_per_second": 100
+    }
+  },
+
+  "metrics": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 9601
+  }
+}

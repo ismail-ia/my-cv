@@ -1,0 +1,32 @@
+# Dependencies (bare name matches at any depth: /qa, /laravel, /next)
+node_modules/
+
+# Local tooling and agent state
+.claude/
+.serena/
+.playwright-cli/
+.idea/
+.vscode/
+
+# Scratch and QA output
+old/
+qa/shots/
+
+# Runtime secrets - use .env.example as the template.
+.env
+.env.*
+!.env.example
+
+# Local compose overrides
+docker-compose.override.yml
+docker-compose.*.override.yml
+
+# Agent instruction files (per-developer, not shared)
+CLAUDE.md
+AGENTS.md
+
+# OS and editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*~

@@ -1,0 +1,221 @@
+# =============================================================================
+# Development stack - same topology as production, different trade-offs:
+# source is bind-mounted, Octane/Next hot-reload, backing services are exposed
+# on the host for a debugger, and nothing is hardened into read-only.
+#
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Image tags are :dev so they never collide with the production images built
+# from docker-compose.yml.
+# =============================================================================
+name: cv-website-dev
+
+x-php-env: &php-env
+  APP_NAME: ${APP_NAME:-Laravel}
+  APP_ENV: local
+  APP_DEBUG: "true"
+  APP_KEY: ${APP_KEY:?APP_KEY is required - see .env.example}
+  APP_URL: http://localhost:${DEV_HTTP_PORT:-8444}
+  LOG_CHANNEL: stderr
+  LOG_LEVEL: debug
+  DB_CONNECTION: sqlite
+  DB_DATABASE: /var/www/data/database.sqlite
+  REDIS_CLIENT: phpredis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  CACHE_STORE: redis
+  SESSION_DRIVER: redis
+  QUEUE_CONNECTION: redis
+  BROADCAST_CONNECTION: pusher
+  PUSHER_APP_ID: ${SOCKUDO_APP_ID:-cv-site}
+  PUSHER_APP_KEY: ${SOCKUDO_APP_KEY:?SOCKUDO_APP_KEY is required}
+  PUSHER_APP_SECRET: ${SOCKUDO_APP_SECRET:?SOCKUDO_APP_SECRET is required}
+  PUSHER_HOST: sockudo
+  PUSHER_PORT: "6001"
+  PUSHER_SCHEME: http
+  PUSHER_APP_CLUSTER: mt1
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+  PROFILE_NAME: ${PROFILE_NAME:-}
+  PROFILE_TITLE: ${PROFILE_TITLE:-}
+  PROFILE_EMAIL: ${PROFILE_EMAIL:-}
+  PROFILE_PHONE: ${PROFILE_PHONE:-}
+  PROFILE_LINKEDIN: ${PROFILE_LINKEDIN:-}
+  PROFILE_LOCATION: ${PROFILE_LOCATION:-}
+  PROFILE_AVAILABILITY: ${PROFILE_AVAILABILITY:-}
+
+x-next-public: &next-public
+  # The NEXT_PUBLIC_ prefix is what Next requires to inline a value into the
+  # client bundle. It is a compiler convention, not a separate setting, so these
+  # are mapped from the single PROFILE_* definitions in .env rather than being
+  # declared twice - two copies of an email address drift, and the avatar would
+  # start handing out a different one from the page.
+  NEXT_PUBLIC_SITE_URL: ${APP_URL:-}
+  NEXT_PUBLIC_PROFILE_NAME: ${PROFILE_NAME:-}
+  NEXT_PUBLIC_PROFILE_TITLE: ${PROFILE_TITLE:-}
+  NEXT_PUBLIC_PROFILE_EMAIL: ${PROFILE_EMAIL:-}
+  NEXT_PUBLIC_PROFILE_PHONE: ${PROFILE_PHONE:-}
+  NEXT_PUBLIC_PROFILE_PHONE_DISPLAY: ${PROFILE_PHONE_DISPLAY:-}
+  NEXT_PUBLIC_PROFILE_LINKEDIN: ${PROFILE_LINKEDIN:-}
+  NEXT_PUBLIC_PROFILE_LOCATION: ${PROFILE_LOCATION:-}
+  NEXT_PUBLIC_PROFILE_CV_PATH: ${PROFILE_CV_PATH:-}
+  NEXT_PUBLIC_PROFILE_AVAILABILITY: ${PROFILE_AVAILABILITY:-}
+
+x-php-volumes: &php-volumes
+  - ./laravel:/var/www/html
+  # vendor/ and the roadrunner binary live in container-managed volumes so the
+  # host tree is not polluted with linux-x86_64 build artifacts.
+  - php-vendor:/var/www/html/vendor
+  - app-data:/var/www/data
+  # Read-only mount of the single source of truth. The prod image bakes the same
+  # files in with COPY. The queue worker needs this too - it is the process that
+  # actually runs the agent.
+  - ./CV:/var/www/html/resources/cv:ro
+
+services:
+  nginx:
+    build:
+      context: ./docker/nginx
+    image: cv-website/nginx:dev
+    ports:
+      - "${DEV_HTTP_PORT:-8444}:80"
+      - "${DEV_HTTPS_PORT:-8544}:443"
+    environment:
+      # localhost, so tls-refresh generates a self-signed certificate and leaves
+      # both protocols usable - a forced redirect here means clicking through a
+      # browser warning on every page load. There is no certbot service in dev:
+      # Let's Encrypt cannot issue for a name it cannot resolve publicly.
+      APP_URL: ${APP_URL_DEV:-http://localhost:${DEV_HTTP_PORT:-8444}}
+      TLS_REDIRECT: ${DEV_TLS_REDIRECT:-false}
+      # What the redirect must point back at; 443 means omit it. The fallback
+      # has to match the published port above: they are the same variable, and
+      # a redirect built from :443 while nginx is published on :8544 lands on
+      # nothing. Inert while DEV_TLS_REDIRECT is false, wrong the moment it is not.
+      HTTPS_PUBLIC_PORT: ${DEV_HTTPS_PORT:-8544}
+    networks: [edge]
+    depends_on:
+      nextjs:  { condition: service_started }
+      php:     { condition: service_started }
+      sockudo: { condition: service_healthy }
+    restart: unless-stopped
+
+  php:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+      target: dev
+    image: cv-website/php:dev
+    environment:
+      <<: *php-env
+      APP_RUN_MIGRATIONS: "true"
+    volumes: *php-volumes
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks: [edge, backend]
+    depends_on:
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  php-worker:
+    # Built by the php service; see the note in docker-compose.yml.
+    image: cv-website/php:dev
+    # queue:listen reboots the framework per job, so edited job/agent code is
+    # picked up without restarting the container.
+    # --timeout here is the Symfony Process timeout the listener applies to each
+    # `queue:work --once` child, NOT a per-job limit. It must exceed the job's
+    # own $timeout (180s) or the parent kills the child mid-answer and the
+    # listener itself dies with ProcessTimedOutException - taking the container
+    # with it, so nothing is processed until someone notices.
+    command: ["php", "artisan", "queue:listen", "--tries=1", "--timeout=240"]
+    environment:
+      <<: *php-env
+      APP_RUN_MIGRATIONS: "false"
+    volumes: *php-volumes
+    networks: [edge, backend]
+    depends_on:
+      redis: { condition: service_healthy }
+      php:   { condition: service_started }
+    healthcheck:
+      # Override the image's HTTP probe: the worker serves no HTTP.
+      test: ["CMD-SHELL", "pgrep -f 'artisan queue:listen' >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  nextjs:
+    build:
+      context: .
+      dockerfile: docker/next/Dockerfile
+      target: dev
+    image: cv-website/nextjs:dev
+    environment:
+      <<: *next-public
+      NODE_ENV: development
+      NEXT_PUBLIC_SOCKUDO_KEY: ${SOCKUDO_APP_KEY:?SOCKUDO_APP_KEY is required}
+      NEXT_PUBLIC_SOCKUDO_PATH: ${NEXT_PUBLIC_SOCKUDO_PATH:-/ws}
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-/api}
+    volumes:
+      - ./next:/app
+      # Anonymous volumes shadow the bind mount. node_modules so the image's
+      # linux build is used instead of whatever the host installed, and .next
+      # because it is the dev server's hot path: leaving it on the host mount
+      # made `load build context` take minutes, since COPY next/ has to walk it.
+      # (It lived on the host while this used Turbopack, which needs .next and
+      # .next-internal on one mount. The dev server runs webpack now.)
+      - /app/node_modules
+      - /app/.next
+      - ./CV/Ismail-Ibrahim-CV.pdf:/app/public/assets/docs/Ismail-Ibrahim-CV.pdf:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks: [edge]
+    restart: unless-stopped
+
+  sockudo:
+    image: ghcr.io/sockudo/sockudo:5.0.1
+    environment:
+      REDIS_URL: redis://redis:6379
+      SOCKUDO_DEFAULT_APP_ID: ${SOCKUDO_APP_ID:-cv-site}
+      SOCKUDO_DEFAULT_APP_KEY: ${SOCKUDO_APP_KEY:?SOCKUDO_APP_KEY is required}
+      SOCKUDO_DEFAULT_APP_SECRET: ${SOCKUDO_APP_SECRET:?SOCKUDO_APP_SECRET is required}
+      SOCKUDO_ENABLE_CLIENT_MESSAGES: "false"
+    volumes:
+      - ./docker/sockudo/config.dev.json:/app/config/config.json:ro
+    ports:
+      # Direct WebSocket debugging, bound to loopback only.
+      - "127.0.0.1:6001:6001"
+      - "127.0.0.1:9601:9601"
+    networks: [edge, backend]
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      # The official image is debian-based: curl is present, wget is not.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:6001/up >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "127.0.0.1:6380:6379"
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+networks:
+  edge:
+    driver: bridge
+  backend:
+    driver: bridge
+
+volumes:
+  app-data:
+  php-vendor:

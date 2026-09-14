@@ -1,0 +1,19 @@
+#!/bin/sh
+# Resolve the TLS identity before the official 20-envsubst-on-templates.sh runs.
+#
+# .envsh, not .sh: the official entrypoint *sources* .envsh and *executes* .sh in
+# a subshell, and only a sourced script can export SERVER_NAME into the
+# environment envsubst later reads.
+#
+# Deliberately no `set -eu`: this is sourced into the entrypoint's own shell, so
+# either flag would leak and let an unrelated later command abort the container
+# start. tls-refresh runs with its own strict mode, in its own process.
+
+if /usr/local/bin/tls-refresh; then
+    SERVER_NAME="$(cat /etc/nginx/dynamic/server_name)"
+else
+    printf '[tls] tls-refresh failed; falling back to localhost\n' >&2
+    SERVER_NAME=localhost
+fi
+
+export SERVER_NAME

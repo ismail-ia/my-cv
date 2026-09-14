@@ -1,0 +1,89 @@
+# Rendered into /etc/nginx/conf.d/ at container start by the official image's
+# 20-envsubst-on-templates.sh. SERVER_NAME comes from 05-tls.envsh, which runs
+# first.
+
+# Docker's embedded DNS. Combined with variable upstreams in snippets/app.conf
+# this makes nginx resolve service names per request instead of once at
+# start-up, so a restarting container no longer takes nginx down with
+# "host not found in upstream".
+resolver 127.0.0.11 valid=10s ipv6=off;
+resolver_timeout 5s;
+
+# ---------------------------------------------------------------------------
+# :80 - always listening. It carries the ACME challenge, and depending on
+# TLS_REDIRECT it either serves the app or sends callers to https.
+# ---------------------------------------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${SERVER_NAME};
+
+    set $forwarded_scheme $scheme;
+    if ($http_x_forwarded_proto = 'https') { set $forwarded_scheme 'https'; }
+
+    include /etc/nginx/snippets/security-headers.conf;
+
+    # nginx's own liveness, independent of every upstream. The redirect below is
+    # a `location /`, so this more specific match still wins and keeps answering
+    # 200 - otherwise the healthcheck would follow a 301 to a self-signed https
+    # endpoint and fail.
+    location = /nginx-health {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Certbot writes its HTTP-01 proof here. ^~ so it wins over any other
+    # prefix match and is never redirected - a redirected challenge fails
+    # validation and the certificate is never issued.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+        access_log off;
+    }
+
+    # Either a `location /` that redirects, or the app itself - decided by
+    # tls-refresh. Never both: they would be two `location /` blocks and nginx
+    # refuses to start.
+    include /etc/nginx/dynamic/http-body.conf;
+}
+
+# ---------------------------------------------------------------------------
+# :443
+# ---------------------------------------------------------------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${SERVER_NAME};
+
+    # A fixed path that tls-refresh re-points. Naming the real file here would
+    # mean a reload could never promote the self-signed placeholder to the
+    # certificate certbot just issued - a reload re-reads files, not config.
+    ssl_certificate     /etc/nginx/certs/current/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/current/privkey.pem;
+
+    # TLS 1.2 is kept for older mobile clients; everything below it is off.
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    set $forwarded_scheme 'https';
+
+    include /etc/nginx/snippets/security-headers.conf;
+    # HSTS only when a real CA issued the certificate. Sending it from a
+    # self-signed localhost would pin the browser to an endpoint it refuses to
+    # trust, and it is not undone by clearing the cache.
+    include /etc/nginx/dynamic/hsts.conf;
+
+    location = /nginx-health {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    include /etc/nginx/snippets/app.conf;
+}

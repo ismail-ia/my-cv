@@ -1,0 +1,306 @@
+# =============================================================================
+# Production stack.
+#   docker compose up -d --build
+#
+# Topology: nginx is the only published port. php/nextjs/sockudo sit on the
+# `edge` network behind it; redis sits on an internal-only `backend` network
+# and is not reachable from the host at all.
+# =============================================================================
+name: cv-website
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+# Environment shared by the Octane server and the queue worker: one definition,
+# so the two can never drift apart.
+x-php-env: &php-env
+  APP_NAME: ${APP_NAME:-Laravel}
+  APP_ENV: ${APP_ENV:-production}
+  APP_DEBUG: ${APP_DEBUG:-false}
+  APP_KEY: ${APP_KEY:?APP_KEY is required - see .env.example}
+  APP_URL: ${APP_URL:-http://localhost:${HTTP_PORT:-8443}}
+  LOG_CHANNEL: ${LOG_CHANNEL:-stderr}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DB_CONNECTION: ${DB_CONNECTION:-sqlite}
+  DB_DATABASE: ${DB_DATABASE:-/var/www/data/database.sqlite}
+  REDIS_CLIENT: ${REDIS_CLIENT:-phpredis}
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  CACHE_STORE: ${CACHE_STORE:-redis}
+  SESSION_DRIVER: ${SESSION_DRIVER:-redis}
+  QUEUE_CONNECTION: ${QUEUE_CONNECTION:-redis}
+  BROADCAST_CONNECTION: ${BROADCAST_CONNECTION:-pusher}
+  # Sockudo speaks the Pusher protocol, so Laravel's pusher driver talks to it
+  # directly over the compose network - plain HTTP, never leaving the bridge.
+  PUSHER_APP_ID: ${SOCKUDO_APP_ID:?SOCKUDO_APP_ID is required}
+  PUSHER_APP_KEY: ${SOCKUDO_APP_KEY:?SOCKUDO_APP_KEY is required}
+  PUSHER_APP_SECRET: ${SOCKUDO_APP_SECRET:?SOCKUDO_APP_SECRET is required}
+  PUSHER_HOST: sockudo
+  PUSHER_PORT: "6001"
+  PUSHER_SCHEME: http
+  PUSHER_APP_CLUSTER: mt1
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+  PROFILE_NAME: ${PROFILE_NAME:-}
+  PROFILE_TITLE: ${PROFILE_TITLE:-}
+  PROFILE_EMAIL: ${PROFILE_EMAIL:-}
+  PROFILE_PHONE: ${PROFILE_PHONE:-}
+  PROFILE_LINKEDIN: ${PROFILE_LINKEDIN:-}
+  PROFILE_LOCATION: ${PROFILE_LOCATION:-}
+  PROFILE_AVAILABILITY: ${PROFILE_AVAILABILITY:-}
+
+x-next-public: &next-public
+  # The NEXT_PUBLIC_ prefix is what Next requires to inline a value into the
+  # client bundle. It is a compiler convention, not a separate setting, so these
+  # are mapped from the single PROFILE_* definitions in .env rather than being
+  # declared twice - two copies of an email address drift, and the avatar would
+  # start handing out a different one from the page.
+  NEXT_PUBLIC_SITE_URL: ${APP_URL:-}
+  NEXT_PUBLIC_PROFILE_NAME: ${PROFILE_NAME:-}
+  NEXT_PUBLIC_PROFILE_TITLE: ${PROFILE_TITLE:-}
+  NEXT_PUBLIC_PROFILE_EMAIL: ${PROFILE_EMAIL:-}
+  NEXT_PUBLIC_PROFILE_PHONE: ${PROFILE_PHONE:-}
+  NEXT_PUBLIC_PROFILE_PHONE_DISPLAY: ${PROFILE_PHONE_DISPLAY:-}
+  NEXT_PUBLIC_PROFILE_LINKEDIN: ${PROFILE_LINKEDIN:-}
+  NEXT_PUBLIC_PROFILE_LOCATION: ${PROFILE_LOCATION:-}
+  NEXT_PUBLIC_PROFILE_CV_PATH: ${PROFILE_CV_PATH:-}
+  NEXT_PUBLIC_PROFILE_AVAILABILITY: ${PROFILE_AVAILABILITY:-}
+
+services:
+  nginx:
+    build:
+      context: ./docker/nginx
+    image: cv-website/nginx:prod
+    ports:
+      # Deliberately not the dev stack's ports: two stacks fighting over one
+      # host port fails silently (the second nginx is left in "created" and
+      # every request quietly hits the first one).
+      #
+      # Let's Encrypt HTTP-01 always validates against port 80 of the public
+      # name, so a real deployment needs HTTP_PORT=80 and HTTPS_PORT=443, or
+      # something in front forwarding those ports here.
+      - "${HTTP_PORT:-8443}:80"
+      - "${HTTPS_PORT:-8543}:443"
+    environment:
+      # tls-refresh derives server_name and the certificate strategy from this.
+      APP_URL: ${APP_URL:-}
+      # Unset means: redirect on a real domain, serve both on localhost.
+      TLS_REDIRECT: ${TLS_REDIRECT:-}
+      # What the redirect must point back at; 443 means omit it.
+      HTTPS_PUBLIC_PORT: ${HTTPS_PORT:-443}
+    volumes:
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot:ro
+    networks: [edge]
+    depends_on:
+      nextjs:  { condition: service_healthy }
+      php:     { condition: service_healthy }
+      sockudo: { condition: service_healthy }
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /var/log/nginx
+      # Written at start-up: conf.d by the template renderer, dynamic/ and
+      # certs/ by tls-refresh. tmpfs rather than a volume because all three are
+      # derived - regenerated on every start from APP_URL and the letsencrypt
+      # volume - so persisting them would only let stale copies survive.
+      - /etc/nginx/conf.d
+      - /etc/nginx/dynamic
+      - /etc/nginx/certs
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Master needs to bind :80 and drop to the nginx user for workers.
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+    restart: unless-stopped
+    logging: *default-logging
+
+  php:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+      target: prod
+    image: cv-website/php:prod
+    environment:
+      <<: *php-env
+      # Exactly one service owns the schema, so php and php-worker never race.
+      APP_RUN_MIGRATIONS: "true"
+    volumes:
+      - app-data:/var/www/data
+      - app-storage:/var/www/html/storage
+    networks: [edge, backend]
+    depends_on:
+      redis: { condition: service_healthy }
+    <<: *hardening
+    restart: unless-stopped
+    logging: *default-logging
+
+  php-worker:
+    # Same image as php, deliberately: one build, one set of dependencies, one
+    # thing to scan and sign. Only the command differs. The build block lives on
+    # the php service alone - declaring it here too made compose build the image
+    # twice and name both results to the same tag.
+    image: cv-website/php:prod
+    command:
+      - php
+      - artisan
+      - queue:work
+      - --queue=default
+      # No --tries/--timeout here: ProcessIncomingChat declares $tries=1 and
+      # $timeout=180, and a job's own properties win over the worker's flags.
+      # Passing conflicting values just makes the real limits harder to find.
+      - --backoff=5
+      - --max-time=3600
+      - --sleep=1
+    environment:
+      <<: *php-env
+      APP_RUN_MIGRATIONS: "false"
+    volumes:
+      - app-data:/var/www/data
+      - app-storage:/var/www/html/storage
+    networks: [edge, backend]
+    depends_on:
+      redis: { condition: service_healthy }
+      php:   { condition: service_healthy }
+    healthcheck:
+      # The worker has no HTTP surface; assert the process is alive instead.
+      test: ["CMD-SHELL", "pgrep -f 'artisan queue:work' >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    <<: *hardening
+    restart: unless-stopped
+    logging: *default-logging
+
+  nextjs:
+    build:
+      context: .
+      dockerfile: docker/next/Dockerfile
+      target: prod
+      args:
+        <<: *next-public
+        NEXT_PUBLIC_SOCKUDO_KEY: ${SOCKUDO_APP_KEY:?SOCKUDO_APP_KEY is required}
+        NEXT_PUBLIC_SOCKUDO_PATH: ${NEXT_PUBLIC_SOCKUDO_PATH:-/ws}
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-/api}
+    image: cv-website/nextjs:prod
+    environment:
+      NODE_ENV: production
+    networks: [edge]
+    read_only: true
+    tmpfs:
+      - /tmp
+    <<: *hardening
+    restart: unless-stopped
+    logging: *default-logging
+
+  sockudo:
+    # Official multi-arch image, pinned. Building it from install.sh at image
+    # build time is neither reproducible nor auditable.
+    image: ghcr.io/sockudo/sockudo:5.0.1
+    environment:
+      REDIS_URL: redis://redis:6379
+      # Credentials stay out of the committed config file.
+      SOCKUDO_DEFAULT_APP_ID: ${SOCKUDO_APP_ID:?SOCKUDO_APP_ID is required}
+      SOCKUDO_DEFAULT_APP_KEY: ${SOCKUDO_APP_KEY:?SOCKUDO_APP_KEY is required}
+      SOCKUDO_DEFAULT_APP_SECRET: ${SOCKUDO_APP_SECRET:?SOCKUDO_APP_SECRET is required}
+      SOCKUDO_ENABLE_CLIENT_MESSAGES: "false"
+    volumes:
+      - ./docker/sockudo/config.prod.json:/app/config/config.json:ro
+    networks: [edge, backend]
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      # The official image is debian-based: curl is present, wget is not.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:6001/up >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    <<: *hardening
+    restart: unless-stopped
+    logging: *default-logging
+
+  certbot:
+    image: certbot/certbot:v3.1.0
+    entrypoint: ["/bin/sh", "/usr/local/bin/entrypoint.sh"]
+    environment:
+      APP_URL: ${APP_URL:-}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
+      # Point at the staging CA while validating a deployment: production allows
+      # only 5 failed authorisations per hour, and a wrong DNS record burns them.
+      LETSENCRYPT_STAGING: ${LETSENCRYPT_STAGING:-false}
+    volumes:
+      - ./docker/certbot/entrypoint.sh:/usr/local/bin/entrypoint.sh:ro
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    networks: [edge]
+    depends_on:
+      # The HTTP-01 challenge is served by nginx, so it has to be up first.
+      nginx: { condition: service_healthy }
+    restart: unless-stopped
+    logging: *default-logging
+
+  redis:
+    image: redis:7.4-alpine
+    # Start as the redis user directly. The image's entrypoint otherwise starts
+    # as root and uses setpriv to step down, which needs SETUID/SETGID - caps
+    # that cap_drop: ALL removes.
+    user: redis
+    # AOF everysec: queue jobs and broadcast state survive a restart without
+    # paying for fsync-per-write.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis-data:/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    <<: *hardening
+    restart: unless-stopped
+    logging: *default-logging
+
+networks:
+  edge:
+    driver: bridge
+  backend:
+    driver: bridge
+    # No route to the host or the internet: redis is only reachable from php,
+    # php-worker and sockudo.
+    internal: true
+
+volumes:
+  # Certificates and the ACME account key. Losing this means re-issuing, which
+  # counts against the 50-certificates-per-week limit for a registered domain.
+  letsencrypt:
+  certbot-webroot:
+  app-data:
+  app-storage:
+  redis-data:

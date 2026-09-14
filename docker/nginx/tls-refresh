@@ -1,0 +1,124 @@
+#!/bin/sh
+# Point nginx at the best certificate currently available, and keep the
+# HTTP-side behaviour in step with it.
+#
+# Idempotent and safe to run at any time: at container start, and on a timer so
+# a certificate certbot has just issued or renewed is adopted without a restart.
+#
+# nginx's config names a fixed path (/etc/nginx/certs/current/...) and this
+# script re-points that symlink. Naming the real path in the config instead
+# would mean the placeholder could only be replaced by re-rendering the config,
+# which a reload does not do.
+set -eu
+
+log() { printf '[tls-refresh] %s\n' "$*" >&2; }
+
+DYNAMIC_DIR=/etc/nginx/dynamic
+CERT_DIR=/etc/nginx/certs
+CURRENT="$CERT_DIR/current"
+LE_DIR=/etc/letsencrypt/live
+
+mkdir -p "$DYNAMIC_DIR" "$CERT_DIR" "$CURRENT"
+
+# The domain comes from APP_URL rather than a variable of its own: the site's
+# canonical URL already is the name nginx should answer to, and one value
+# cannot disagree with itself.
+host_from_url() {
+    printf '%s' "$1" | sed -e 's|^[a-zA-Z][a-zA-Z0-9+.-]*://||' -e 's|^.*@||' -e 's|/.*$||' -e 's|:[0-9]*$||'
+}
+
+SERVER_NAME="$(host_from_url "${APP_URL:-}")"
+[ -n "$SERVER_NAME" ] || SERVER_NAME=localhost
+
+case "$SERVER_NAME" in
+    localhost|127.0.0.1|'[::1]'|*.localhost|*.local|*.test) IS_LOCAL=1 ;;
+    *) IS_LOCAL=0 ;;
+esac
+
+# --------------------------------------------------------------------------
+# Self-signed material. Always present, including on a real domain, because it
+# is what lets nginx bind :443 before certbot has ever run. Without it the
+# chicken-and-egg is unbreakable: HTTP-01 needs nginx serving the challenge,
+# and nginx will not start pointing at a certificate that does not exist.
+# --------------------------------------------------------------------------
+SELF_CRT="$CERT_DIR/self-signed.crt"
+SELF_KEY="$CERT_DIR/self-signed.key"
+
+if [ ! -s "$SELF_CRT" ] || [ ! -s "$SELF_KEY" ]; then
+    log "generating a self-signed certificate for $SERVER_NAME"
+    openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+        -keyout "$SELF_KEY" -out "$SELF_CRT" \
+        -subj "/CN=$SERVER_NAME" \
+        -addext "subjectAltName=DNS:$SERVER_NAME,DNS:localhost,IP:127.0.0.1" \
+        >/dev/null 2>&1
+    chmod 600 "$SELF_KEY"
+fi
+
+SOURCE_CRT="$SELF_CRT"
+SOURCE_KEY="$SELF_KEY"
+CERT_SOURCE="self-signed"
+
+if [ "$IS_LOCAL" -eq 0 ] && [ -s "$LE_DIR/$SERVER_NAME/fullchain.pem" ]; then
+    SOURCE_CRT="$LE_DIR/$SERVER_NAME/fullchain.pem"
+    SOURCE_KEY="$LE_DIR/$SERVER_NAME/privkey.pem"
+    CERT_SOURCE="letsencrypt"
+fi
+
+PREVIOUS="$(readlink "$CURRENT/fullchain.pem" 2>/dev/null || true)"
+
+ln -sf "$SOURCE_CRT" "$CURRENT/fullchain.pem"
+ln -sf "$SOURCE_KEY" "$CURRENT/privkey.pem"
+
+# --------------------------------------------------------------------------
+# HTTP behaviour, kept consistent with the certificate in use.
+# --------------------------------------------------------------------------
+if [ -n "${TLS_REDIRECT:-}" ]; then
+    REDIRECT="$TLS_REDIRECT"
+elif [ "$IS_LOCAL" -eq 1 ]; then
+    # A forced redirect on localhost means clicking through a browser warning
+    # on every page load, so both protocols stay usable there.
+    REDIRECT=false
+else
+    REDIRECT=true
+fi
+
+# The port the browser must come back on is the one nginx is *published* on,
+# which is not necessarily 443. Dropping it sends every redirected request to a
+# port nothing is listening on - the site looks dead, and an already-open page
+# starts failing its API calls while still rendering fine.
+REDIRECT_PORT=""
+case "${HTTPS_PUBLIC_PORT:-443}" in
+    443|'') REDIRECT_PORT="" ;;
+    *) REDIRECT_PORT=":${HTTPS_PUBLIC_PORT}" ;;
+esac
+
+if [ "$REDIRECT" = "true" ]; then
+    # Wrapped in `location /`, NOT left at server level. A server-level `return`
+    # runs in the rewrite phase, which happens before nginx selects a location,
+    # so it short-circuits even `^~ /.well-known/acme-challenge/` - the ACME
+    # challenge gets a 301, validation fails, and no certificate is ever issued.
+    # As a location it competes by normal matching rules and the more specific
+    # prefixes win.
+    #
+    # $host, not $http_host: $http_host carries the port the client arrived on
+    # (80), and redirecting to https on port 80 is a loop.
+    printf 'location / { return 301 https://$host%s$request_uri; }\n' "$REDIRECT_PORT" > "$DYNAMIC_DIR/http-body.conf"
+else
+    printf 'include /etc/nginx/snippets/app.conf;\n' > "$DYNAMIC_DIR/http-body.conf"
+fi
+
+# HSTS only behind a real CA. Sent from a self-signed localhost it pins the
+# browser to an endpoint it refuses to trust, and clearing the cache does not
+# undo it.
+if [ "$CERT_SOURCE" = "letsencrypt" ]; then
+    printf 'add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n' \
+        > "$DYNAMIC_DIR/hsts.conf"
+else
+    : > "$DYNAMIC_DIR/hsts.conf"
+fi
+
+printf '%s' "$SERVER_NAME" > "$DYNAMIC_DIR/server_name"
+
+if [ "$PREVIOUS" != "$SOURCE_CRT" ]; then
+    log "server_name=$SERVER_NAME certificate=$CERT_SOURCE http_redirect=$REDIRECT"
+fi

@@ -1,0 +1,9 @@
+{
+  "name": "ismail-site-qa",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "qa": "node qa.mjs"
+  },
+  "devDependencies": { "playwright": "1.63.0", "axe-core": "^4.10.0" }
+}

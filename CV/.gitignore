@@ -1,0 +1,9 @@
+# Personal CV source. Authored here, copied into both images at build time by
+# docker/php/Dockerfile (COPY CV/*.md) and docker/next/Dockerfile (COPY CV/*.pdf).
+# Not committed: these carry phone number, email and full employment history.
+#
+# Consequence: a fresh clone has no CV files, and both COPY globs match zero
+# files, which is a hard build error. Supply them out of band before building.
+*
+!.gitignore
+!README.md

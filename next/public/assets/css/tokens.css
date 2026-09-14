@@ -1,0 +1,150 @@
+/* ==========================================================================
+   ISMAIL IBRAHIM — DESIGN TOKENS v1.0
+   Layer 1 primitives -> Layer 2 semantic -> Layer 3 component.
+   Never use a Layer 1 value directly in a component. Use the semantic alias.
+   ========================================================================== */
+
+:root {
+  /* ---- L1 PRIMITIVES : PAPER ------------------------------------------- */
+  --bone-0:   #FDFCFA;  /* lifted paper, video/avatar plate               */
+  --bone-50:  #FAF7F2;  /* CANVAS. the default ground                     */
+  --bone-100: #F2EDE5;  /* raised surface, cards                          */
+  --bone-200: #EAE3D8;  /* sunken surface, wells, code blocks             */
+  --bone-300: #DED6C8;  /* hairlines, dividers                            */
+  --bone-400: #C9C2B6;  /* disabled borders, construction lines           */
+
+  /* ---- L1 PRIMITIVES : INK --------------------------------------------- */
+  --ink-900:  #0B0D0F;  /* the suit. primary text, mark, dark ground      */
+  --ink-800:  #16191C;  /* dark section ground, raised on dark            */
+  --ink-700:  #2B2A28;  /* secondary heading ink                          */
+  --ink-500:  #6B655C;  /* muted body, captions      5.40:1 on bone-50    */
+  --ink-400:  #9A948A;  /* dim text ON DARK ONLY     6.25:1 on ink-900    */
+
+  /* ---- L1 PRIMITIVES : SIGNAL ------------------------------------------ */
+  --signal-600: #B8380A; /* orange TEXT on paper     5.45:1  AA           */
+  --signal-500: #E8480C; /* THE accent. fills, rules, large display       */
+  --signal-400: #FF6B2C; /* orange on DARK grounds   6.62:1  AA           */
+  --signal-100: #FCE4D8; /* tint wash, highlight behind text              */
+
+  --verify-600: #0E7C5A; /* "it holds" green. uptime, passing, shipped    */
+  --verify-100: #D7F0E5;
+
+  /* ---- L2 SEMANTIC : GROUND -------------------------------------------- */
+  --canvas:        var(--bone-50);
+  --canvas-plate:  var(--bone-0);
+  --surface:       var(--bone-100);
+  --surface-sunk:  var(--bone-200);
+  --hairline:      var(--bone-300);
+
+  --text:          var(--ink-900);
+  --text-2:        var(--ink-700);
+  --text-muted:    var(--ink-500);
+
+  --accent:        var(--signal-500);
+  --accent-text:   var(--signal-600);
+  --accent-wash:   var(--signal-100);
+  --verify:        var(--verify-600);
+
+  /* Focus ring is never removed. Only restyled. */
+  --focus-ring:    var(--ink-900);
+  --focus-halo:    var(--signal-500);
+
+  /* ---- L2 SEMANTIC : TYPE ---------------------------------------------- */
+  --font-display: 'Space Grotesk', 'Inter Tight', system-ui, sans-serif;
+  --font-body:    'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:    'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* fluid scale, 360px -> 1440px viewport */
+  --t-hero:   clamp(3rem,   1.60rem + 6.20vw, 7.50rem);  /*  48 -> 120 */
+  --t-h1:     clamp(2.25rem,1.42rem + 3.70vw, 4.50rem);  /*  36 ->  72 */
+  --t-h2:     clamp(1.75rem,1.25rem + 2.22vw, 3.00rem);  /*  28 ->  48 */
+  --t-h3:     clamp(1.375rem,1.14rem + 1.02vw,1.75rem);  /*  22 ->  28 */
+  --t-h4:     1.25rem;                                   /*  20 */
+  --t-lead:   clamp(1.0625rem,.99rem + .32vw,1.1875rem); /*  17 ->  19 */
+  --t-body:   1rem;                                      /*  16 */
+  --t-small:  0.875rem;                                  /*  14 */
+  --t-micro:  0.75rem;                                   /*  12 */
+
+  --lh-tight: 0.94;   /* hero only */
+  --lh-head:  1.08;
+  --lh-body:  1.62;
+  --tr-hero:  -0.045em;
+  --tr-head:  -0.025em;
+  --tr-micro:  0.16em;  /* mono eyebrow labels */
+
+  /* ---- L2 SEMANTIC : SPACE (4pt rhythm) -------------------------------- */
+  --s-1: .25rem; --s-2: .5rem;  --s-3: .75rem; --s-4: 1rem;
+  --s-6: 1.5rem; --s-8: 2rem;   --s-12: 3rem;  --s-16: 4rem;
+  --s-24: 6rem;  --s-32: 8rem;
+  --section-y: clamp(4rem, 2.4rem + 7vw, 8.5rem);
+  --gutter:    clamp(1.25rem, .6rem + 2.8vw, 3rem);
+  --measure:   68ch;   /* max body line length */
+
+  /* ---- L2 SEMANTIC : FORM ---------------------------------------------- */
+  --r-sm: 4px; --r-md: 8px; --r-lg: 14px; --r-xl: 24px; --r-pill: 999px;
+  --border: 1px solid var(--hairline);
+  --border-strong: 1.5px solid var(--ink-900);
+
+  /* paper shadows: warm, never blue-grey */
+  --lift-1: 0 1px 2px rgba(43,42,40,.06), 0 2px 6px rgba(43,42,40,.04);
+  --lift-2: 0 2px 4px rgba(43,42,40,.05), 0 12px 28px rgba(43,42,40,.08);
+  --lift-3: 0 4px 8px rgba(43,42,40,.05), 0 28px 60px rgba(43,42,40,.12);
+
+  /* ---- L2 SEMANTIC : MOTION -------------------------------------------- */
+  --dur-1: 120ms; --dur-2: 220ms; --dur-3: 420ms; --dur-4: 900ms;
+  --ease-out:  cubic-bezier(.22,.61,.36,1);
+  --ease-firm: cubic-bezier(.34,.01,.21,1);   /* structural, no bounce */
+
+  /* ---- L3 COMPONENT ---------------------------------------------------- */
+  /* Orange fill demands INK label. White on orange is 3.92:1 and fails AA. */
+  --btn-primary-bg:   var(--signal-500);
+  --btn-primary-fg:   var(--ink-900);        /* 4.97:1 AA */
+  --btn-primary-bg-h: var(--signal-600);
+  --btn-primary-fg-h: var(--bone-50);        /* 5.45:1 AA */
+  --btn-ghost-fg:     var(--ink-900);
+  --btn-ghost-bd:     var(--ink-900);
+  --nav-h: 68px;
+}
+
+/* ==========================================================================
+   INVERTED SECTIONS
+   Apply .on-dark to a <section>. Every semantic alias re-points; components
+   inside need zero changes. The avatar must NEVER sit on .on-dark — the suit
+   is --ink-900 and would vanish into the ground.
+   ========================================================================== */
+.on-dark {
+  --canvas:       var(--ink-900);
+  --canvas-plate: var(--ink-900);
+  --surface:      var(--ink-800);
+  --surface-sunk: #0A0C0D;
+  --hairline:     #2A2E32;
+
+  --text:         var(--bone-50);
+  --text-2:       var(--bone-100);
+  --text-muted:   var(--ink-400);
+
+  --accent:       var(--signal-400);
+  --accent-text:  var(--signal-400);
+  --accent-wash:  rgba(255,107,44,.14);
+  --verify:       #34D399;
+
+  --focus-ring:   var(--bone-50);
+
+  --btn-primary-bg: var(--signal-400);
+  --btn-primary-fg: var(--ink-900);
+  --btn-primary-bg-h: var(--bone-50);
+  --btn-primary-fg-h: var(--ink-900);
+  --btn-ghost-fg: var(--bone-50);
+  --btn-ghost-bd: var(--bone-50);
+
+  --lift-1: none;
+  --lift-2: 0 12px 28px rgba(0,0,0,.5);
+  --lift-3: 0 28px 60px rgba(0,0,0,.6);
+
+  background: var(--canvas);
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-1:1ms; --dur-2:1ms; --dur-3:1ms; --dur-4:1ms; }
+}

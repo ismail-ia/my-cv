@@ -1,0 +1,39 @@
+# Keep build contexts small and deterministic.
+.git
+.gitignore
+old
+qa
+.claude
+.serena
+.playwright-cli
+docker-compose*.yml
+# Scoped to the dependency trees only. A bare **/vendor also matches
+# next/public/assets/vendor, which is where the Bootstrap dist files live,
+# and silently drops them from the image.
+laravel/vendor
+laravel/node_modules
+next/node_modules
+# Matched at any depth on purpose. COPY CV/*.pdf uses a glob, and a glob makes
+# BuildKit load the WHOLE context rather than a filtered subset - so one stray
+# build directory anywhere turns `load build context` into minutes on this
+# mount. In dev .next lives in an anonymous volume and never appears here.
+**/.next
+**/.next-internal
+# No negation pattern here on purpose: a "!" exception forces BuildKit to walk
+# into every excluded directory to check for matches, which turns `load build
+# context` into minutes on a large tree. .env.example is simply not excluded.
+**/.env
+**/.env.local
+**/.env.backup
+**/.env.production
+**/.env.testing
+laravel/storage/logs/*
+laravel/storage/framework/cache/*
+laravel/storage/framework/sessions/*
+laravel/storage/framework/views/*
+laravel/database/*.sqlite
+laravel/rr
+laravel/.rr.yaml
+laravel/.phpunit.cache
+laravel/tests
+next/.playwright-cli
