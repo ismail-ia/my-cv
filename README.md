@@ -150,9 +150,24 @@ of the public name and cannot reach a high port unless something in front
 forwards it. Point the domain's DNS at the host first; certificate issuance
 needs the name to already resolve.
 
+Build the images before bringing the stack up:
+
 ```bash
-docker compose up -d --build
+docker compose build
+docker compose up -d
 ```
+
+The build step is not optional. `nginx`, `php` and `nextjs` are tagged
+`cv-website/*:prod`, which exists only on the host that built it and on no
+registry, and `php-worker` has no `build:` section at all - it reuses
+`cv-website/php:prod`. On a host that has not built yet, `docker compose up -d`
+goes looking for those tags on Docker Hub and fails with a pull error rather
+than an obvious "you forgot to build" message.
+
+`docker compose up -d --build` does both in one command and is fine for a first
+deploy. Keeping them separate is better on a live host: the build is the slow,
+failure-prone half, and doing it first means a broken build never takes the
+running stack down with it.
 
 TLS follows `APP_URL`'s host automatically. A real domain gets a Let's Encrypt
 certificate issued at runtime by the `certbot` service and renewed on a 12-hour
@@ -166,6 +181,13 @@ fast. Once a staging certificate is issued, flip it to `false` and recreate:
 
 ```bash
 docker compose up -d --force-recreate nginx certbot
+```
+
+Any later `up` without `--build` reuses whatever images are already on the host,
+so rebuild first whenever the source has changed:
+
+```bash
+docker compose build && docker compose up -d
 ```
 
 Verify:
