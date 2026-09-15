@@ -4,14 +4,14 @@ import SiteEffects from "@/components/SiteEffects";
 
 export const metadata = {
   metadataBase: new URL(profile.siteUrl),
-  title: "Ismail Ibrahim - I make systems hold",
+  title: `${profile.name} - I make systems hold`,
   description:
     "Lead software engineer, 17 years. I took a monolith to 71.2M requests a month and zero downtime by rebuilding the infrastructure under it, and I build the AI systems that run on top.",
   icons: {
     icon: "/assets/logo/favicon.svg",
   },
   openGraph: {
-    title: "Ismail Ibrahim - I make systems hold",
+    title: `${profile.name} - I make systems hold`,
     description:
       "17 years. 71.2M requests a month, $47.5M GMV, zero downtime. Laravel, distributed systems, AI engineering.",
     type: "profile",
@@ -20,7 +20,7 @@ export const metadata = {
         url: "/assets/img/og-card.png",
         width: 1200,
         height: 630,
-        alt: "I make systems hold. Ismail Ibrahim: 71.2M requests a month, $47.5M GMV, zero downtime, 17 years.",
+        alt: `I make systems hold. ${profile.name}: 71.2M requests a month, $47.5M GMV, zero downtime, 17 years.`,
       },
     ],
   },

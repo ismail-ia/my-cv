@@ -92,6 +92,22 @@ their volumes) apart.
 
 You also need the CV files in `/CV` - see [The CV](#the-cv) below.
 
+### After editing .env
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+`up -d` recreates any container whose configuration changed. **`restart` does
+not** - it restarts the same container with the environment it was created with,
+so an edited `.env` appears to have no effect. In production the `NEXT_PUBLIC_*`
+values are inlined into the client bundle at build time, so changing them needs
+a rebuild:
+
+```bash
+docker compose up -d --build nextjs
+```
+
 ## Local development
 
 ```bash

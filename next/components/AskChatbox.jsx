@@ -168,7 +168,7 @@ export default function AskChatbox() {
                 <div className="chat__top">
                   <img src="/assets/avatar/ismail-bust-256.webp" alt="" width={40} height={40} />
                   <div className="chat__who">
-                    <b>Ismail&rsquo;s Clone</b>
+                    <b>{profile.firstName}&rsquo;s Clone</b>
                     <span><i className="dot"></i> AI Clone Available</span>
                   </div>
                 </div>
@@ -185,12 +185,12 @@ export default function AskChatbox() {
                   role="log"
                   aria-live="off"
                   aria-busy={busy}
-                  aria-label="Conversation with Ismail's Clone"
+                  aria-label={`Conversation with ${profile.firstName}'s Clone`}
                 >
                   <ul className="chat__list" id="chatList">
                     <li className="term-msg term-msg--in">
                       <span className="term-prompt">
-                        <span className="term-avatar">Ismail@ubuntu</span>:<span className="term-path">~</span>${' '}
+                        <span className="term-avatar">{profile.firstName}@ubuntu</span>:<span className="term-path">~</span>${' '}
                       </span>
                       <span className="term-content" dangerouslySetInnerHTML={{ __html: INTRO }} />
                     </li>
@@ -199,7 +199,7 @@ export default function AskChatbox() {
                       <li key={m.id} className={`term-msg term-msg--${m.type}`}>
                         <span className="term-prompt">
                           <span className={m.type === 'out' ? 'term-user' : 'term-avatar'}>
-                            {m.type === 'out' ? 'Guest@ubuntu' : 'Ismail@ubuntu'}
+                            {m.type === 'out' ? 'Guest@ubuntu' : `${profile.firstName}@ubuntu`}
                           </span>
                           :<span className="term-path">~</span>${' '}
                         </span>
@@ -217,7 +217,7 @@ export default function AskChatbox() {
                         </li>
                         <li className={`term-msg term-msg--${status === 'error' ? 'err' : 'in'}`}>
                           <span className="term-prompt">
-                            <span className="term-avatar">Ismail@ubuntu</span>:<span className="term-path">~</span>${' '}
+                            <span className="term-avatar">{profile.firstName}@ubuntu</span>:<span className="term-path">~</span>${' '}
                           </span>
                           <span className="term-content" dangerouslySetInnerHTML={{ __html: liveAnswer }} />
                         </li>
@@ -271,7 +271,7 @@ export default function AskChatbox() {
                   autoComplete="off"
                   onSubmit={(e) => { e.preventDefault(); handleSend(inputValue); }}
                 >
-                  <label className="vh" htmlFor="chatInput">Ask Ismail&rsquo;s Clone a question</label>
+                  <label className="vh" htmlFor="chatInput">Ask {profile.firstName}&rsquo;s Clone a question</label>
                   <input
                     id="chatInput"
                     ref={inputRef}

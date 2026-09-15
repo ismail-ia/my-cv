@@ -1,3 +1,5 @@
+import { profile } from '@/lib/profile';
+
 export default function Hero() {
   return (
     <section className="section hero">
@@ -36,8 +38,8 @@ export default function Hero() {
               ></video>
             </figure>
             <p className="hero__meta">
-              <span><i className="dot"></i> Open to senior, lead&nbsp;&amp;&nbsp;fractional CTO&nbsp;roles</span>
-              <span>Remote &middot; EET,&nbsp;shifts&nbsp;to&nbsp;EST</span>
+              <span><i className="dot"></i> {profile.availability}</span>
+              <span>{profile.location}</span>
             </p>
           </div>
         </div>

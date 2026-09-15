@@ -86,9 +86,9 @@ export default function Navigation() {
     <>
       <header className="nav-b" id="nav">
         <div className="shell nav-b__in">
-          <a className="lockup" href="#top" aria-label="Ismail Ibrahim, home">
+          <a className="lockup" href="#top" aria-label={`${profile.name}, home`}>
             <img src="/assets/logo/mark.svg" alt="" width="28" height="28" />
-            <span>Ismail Ibrahim</span>
+            <span>{profile.name}</span>
           </a>
           <nav className="nav-b__links" aria-label="Sections" ref={navLinksRef}>
             <a href="#ask">Ask</a>
