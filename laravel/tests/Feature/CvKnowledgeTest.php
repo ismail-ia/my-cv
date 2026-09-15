@@ -40,7 +40,7 @@ class CvKnowledgeTest extends TestCase
         $prompt = (string) Avatar::make()->instructions();
 
         // A few load-bearing facts the site's own copy also displays.
-        foreach (['71.2M', '$47.5M', 'Eve', 'GrintaHub'] as $fact) {
+        foreach (['100.96M', '$47.5M', 'Eve', 'GrintaHub'] as $fact) {
             $this->assertStringContainsString($fact, $prompt, "the prompt lost [{$fact}]");
         }
 

@@ -658,7 +658,7 @@ const rmHero = await pr.evaluate(() => {
   return bad;
 });
 ok('reduced motion: hero renders complete, no entrance', rmHero.length===0, rmHero.join(' | '));
-ok('reduced motion: metric at final value', rm.metric==='71.2M', rm.metric);
+ok('reduced motion: metric at final value', rm.metric==='100.96M', rm.metric);
 
 await browser.close();
 

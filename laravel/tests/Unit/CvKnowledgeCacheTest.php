@@ -50,9 +50,9 @@ class CvKnowledgeCacheTest extends TestCase
     #[Test]
     public function it_reads_the_cv_markdown(): void
     {
-        $this->write('cv.md', "# ISMAIL IBRAHIM\n\n71.2M requests a month.");
+        $this->write('cv.md', "# ISMAIL IBRAHIM\n\n100.96M requests a month.");
 
-        $this->assertSame("# ISMAIL IBRAHIM\n\n71.2M requests a month.", $this->knowledge()->markdown());
+        $this->assertSame("# ISMAIL IBRAHIM\n\n100.96M requests a month.", $this->knowledge()->markdown());
     }
 
     #[Test]

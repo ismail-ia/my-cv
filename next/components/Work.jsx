@@ -17,7 +17,7 @@ export default function Work() {
             </div>
             <p className="card-b__role">Engineering Director, part-time contract &middot; ticketing &amp; resale &middot; team of 7</p>
             <ul>
-              <li>Absorbed <span className="num">71.2M</span> requests a month with zero downtime across <span className="num">$47.5M</span> annual GMV.</li>
+              <li>Absorbed <span className="num">100.96M</span> requests a month with zero downtime across <span className="num">$47.5M</span> annual GMV.</li>
               <li>Solved the ticketing race conditions - two buyers reaching for the same ticket in the same millisecond - with uniqueness constraints and optimistic and pessimistic row locks.</li>
               <li>Moved the entire infrastructure from AWS Bahrain to AWS Italy during a regional outage. No data loss, full capacity the same day.</li>
               <li>Fused AI query refinement with Elasticsearch for a <span className="num">400%</span> gain in search accuracy and speed.</li>
